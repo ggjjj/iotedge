@@ -49,4 +49,5 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.IntegrationTest.Client
             return Option.None<T>();
         }
     }
+
 }
