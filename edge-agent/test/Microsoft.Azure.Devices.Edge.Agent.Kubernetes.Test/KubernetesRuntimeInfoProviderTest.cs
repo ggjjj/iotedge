@@ -35,6 +35,23 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
             yield return new object[] { new V1NodeList(new List<V1Node> { nodeFilled }), new SystemInfo("Kubernetes", "Kubernetes", "Kubernetes") };
         }
 
+        public static V1Pod CreatePodWithEdgeModuleNames(string moduleName)
+           => new V1Pod
+           {
+               Metadata = new V1ObjectMeta
+               {
+                   Name = "module-a-abc123",
+                   Labels = new Dictionary<string, string>
+                   {
+                       [KubernetesConstants.K8sEdgeModuleLabel] = moduleName
+                   }
+               },
+               Status = new V1PodStatus
+               {
+                   Phase = "Running",
+               }
+           };
+
         public static V1Pod CreatePodWithPodParametersOnly(string podPhase, string podReason, string podMessage)
             => new V1Pod
             {
@@ -86,6 +103,31 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
                     }
                 }
             };
+
+        public static IEnumerable<object[]> GetListOfPodsForTemperatureSensorDeployment()
+        {
+            return new[]
+            {
+                new object[]
+                {
+                    CreatePodWithEdgeModuleNames("edgeagent"),
+                    "Module status Unknown reason: Unknown with message: Unknown",
+                    ModuleStatus.Running
+                },
+                new object[]
+                {
+                    CreatePodWithEdgeModuleNames("edgehub"),
+                    "Module Failed reason: Terminated with message: Non-zero exit code",
+                    ModuleStatus.Running
+                },
+                new object[]
+                {
+                    CreatePodWithEdgeModuleNames("simulatedtemperaturesensor"),
+                    "Module Stopped reason: Completed with message: Zero exit code",
+                    ModuleStatus.Running
+                }
+            };
+        }
 
         public static IEnumerable<object[]> GetListOfPodsInRunningPhase()
         {
@@ -200,7 +242,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
         [Fact]
         public async Task ReturnsModulesWhenModuleInfoAdded()
         {
-            V1Pod edgeagent = BuildPodList()["edgeagent"];
+            V1Pod edgeagent = CreatePodWithEdgeModuleNames("edgeagent");
             var client = new Mock<IKubernetes>(MockBehavior.Strict);
             var moduleManager = new Mock<IModuleManager>(MockBehavior.Strict);
             var runtimeInfo = new KubernetesRuntimeInfoProvider(Namespace, client.Object, moduleManager.Object);
@@ -216,8 +258,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
         [Fact]
         public async Task ReturnsRestModulesWhenSomeModulesInfoRemoved()
         {
-            V1Pod edgeagent = BuildPodList()["edgeagent"];
-            V1Pod edgehub = BuildPodList()["edgehub"];
+            // V1Pod edgeagent = BuildPodList()["edgeagent"];
+            // V1Pod edgehub = BuildPodList()["edgehub"];
+            V1Pod edgeagent = CreatePodWithEdgeModuleNames("edgeagent");
+            V1Pod edgehub = CreatePodWithEdgeModuleNames("edgehub");
             var client = new Mock<IKubernetes>(MockBehavior.Strict);
             var moduleManager = new Mock<IModuleManager>(MockBehavior.Strict);
             var runtimeInfo = new KubernetesRuntimeInfoProvider(Namespace, client.Object, moduleManager.Object);
@@ -235,11 +279,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
         [Fact]
         public async Task ReturnsModuleRuntimeInfoWhenPodsAreUpdated()
         {
-            V1Pod edgeagent1 = BuildPodList()["edgeagent"];
+            V1Pod edgeagent1 = CreatePodWithEdgeModuleNames("edgeagent");
             edgeagent1.Metadata.Name = "edgeagent_123";
             edgeagent1.Status.ContainerStatuses
                 .First(c => c.Name == "edgeagent").State.Running.StartedAt = new DateTime(2019, 10, 28);
-            V1Pod edgeagent2 = BuildPodList()["edgeagent"];
+            V1Pod edgeagent2 = CreatePodWithEdgeModuleNames("edgeagent");
             edgeagent2.Metadata.Name = "edgeAgent_456";
             edgeagent2.Status.ContainerStatuses
                 .First(c => c.Name == "edgeagent").State.Running.StartedAt = new DateTime(2019, 10, 29);
@@ -257,6 +301,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
             Assert.Equal(info.StartTime, Option.Some(new DateTime(2019, 10, 29)));
         }
 
+        /*
         [Fact]
         public async Task ConvertsPodsToModules()
         {
@@ -281,6 +326,28 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
                 {
                     Assert.NotEqual("unknown:unknown", config.Config.Image);
                 }
+            }
+        }
+        */
+
+        [Theory]
+        [MemberData(nameof(GetListOfPodsForTemperatureSensorDeployment))]
+        public async Task ConvertsPodsToModules(V1Pod pod, string description, ModuleStatus status)
+        {
+            var client = new Mock<IKubernetes>(MockBehavior.Strict);
+            var moduleManager = new Mock<IModuleManager>(MockBehavior.Strict);
+            var runtimeInfo = new KubernetesRuntimeInfoProvider(Namespace, client.Object, moduleManager.Object);
+            runtimeInfo.CreateOrUpdateAddPodInfo(pod);
+
+            ModuleRuntimeInfo info = (await runtimeInfo.GetModules(CancellationToken.None)).Single();
+
+            Assert.Equal(status, info.ModuleStatus);
+            Assert.Equal(description, info.Description);
+            Assert.Equal(new DateTime(2019, 6, 12), info.StartTime.GetOrElse(DateTime.MinValue).Date);
+            Assert.Equal("docker", info.Type);
+            if (info is ModuleRuntimeInfo<DockerReportedConfig> config)
+            {
+                Assert.NotEqual("unknown:unknown", config.Config.Image);
             }
         }
 
@@ -360,7 +427,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
             Assert.Equal(description, info.Description);
         }
 
-        static Dictionary<string, V1Pod> BuildPodList()
+        /*static Dictionary<string, V1Pod> BuildPodList()
         {
             string content = File.ReadAllText("podwatch.txt");
             var list = JsonConvert.DeserializeObject<V1PodList>(content);
@@ -374,6 +441,6 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Kubernetes.Test
                     })
                 .Where(item => !string.IsNullOrEmpty(item.name))
                 .ToDictionary(item => item.name, item => item.pod);
-        }
+        }*/
     }
 }
