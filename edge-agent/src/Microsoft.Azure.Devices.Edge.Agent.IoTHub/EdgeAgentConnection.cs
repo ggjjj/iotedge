@@ -153,6 +153,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             Events.DesiredPropertiesUpdated();
             using (await this.twinLock.LockAsync())
             {
+                Events.LogTwinCollectionPatch(desiredPropertiesPatch);
                 await this.desiredProperties
                     .Filter(d => d.Version + 1 == desiredPropertiesPatch.Version)
                     .Map(d => this.ApplyPatchAsync(d, desiredPropertiesPatch))
@@ -165,6 +166,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
         {
             Events.TwinRefreshStart();
             Option<Twin> twinOption = await this.GetTwinFromIoTHub();
+            Events.GotFullTwin(twinOption);
 
             await twinOption.ForEachAsync(
                 async twin =>
@@ -193,6 +195,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                     Events.GettingModuleClient();
                     IModuleClient moduleClient = await this.moduleConnection.GetOrCreateModuleClient();
                     Events.GotModuleClient();
+                    Events.BeforeGettingFullTwin();
                     return await moduleClient.GetTwinAsync();
                 }
 
@@ -222,6 +225,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                 string mergedJson = JsonEx.Merge(desiredProperties, patch, true);
                 desiredProperties = new TwinCollection(mergedJson);
                 this.desiredProperties = Option.Some(desiredProperties);
+                Events.LogDesiredPropertiesAfterPatch(desiredProperties);
                 await this.UpdateDeploymentConfig(desiredProperties);
                 Events.DesiredPropertiesPatchApplied();
             }
@@ -307,7 +311,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                 UpdatedReportedProperties,
                 ErrorUpdatingReportedProperties,
                 GotModuleClient,
-                GettingModuleClient
+                GettingModuleClient,
+                LogTwinCollectionPatch,
+                LogDesiredPropertiesAfterPatch,
+                GotFullTwin,
+                BeforeGettingFullTwin
             }
 
             public static void DesiredPropertiesPatchFailed(Exception exception)
@@ -356,12 +364,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
 
             public static void GettingModuleClient()
             {
-                Log.LogDebug((int)EventIds.GettingModuleClient, "Getting module client to refresh the twin");
+                Log.LogInformation((int)EventIds.GettingModuleClient, "Getting module client to refresh the twin");
             }
 
             public static void GotModuleClient()
             {
-                Log.LogDebug((int)EventIds.GotModuleClient, "Got module client to refresh the twin");
+                Log.LogInformation((int)EventIds.GotModuleClient, "Got module client to refresh the twin");
             }
 
             public static void ErrorGettingTwin(Exception e)
@@ -371,12 +379,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
 
             internal static void DesiredPropertiesUpdated()
             {
-                Log.LogDebug((int)EventIds.DesiredPropertiesUpdated, "Edge agent desired properties updated callback invoked.");
+                Log.LogInformation((int)EventIds.DesiredPropertiesUpdated, "Edge agent desired properties updated callback invoked.");
             }
 
             internal static void DesiredPropertiesPatchApplied()
             {
-                Log.LogDebug((int)EventIds.DesiredPropertiesPatchApplied, "Edge agent desired properties patch applied successfully.");
+                Log.LogInformation((int)EventIds.DesiredPropertiesPatchApplied, "Edge agent desired properties patch applied successfully.");
             }
 
             internal static void ConnectionStatusChangedHandlingError(Exception ex)
@@ -386,17 +394,17 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
 
             internal static void TwinRefreshInit(TimeSpan interval)
             {
-                Log.LogDebug((int)EventIds.TwinRefreshInit, "Initialize twin refresh with interval '{0:c}'", interval);
+                Log.LogInformation((int)EventIds.TwinRefreshInit, "Initialize twin refresh with interval '{0:c}'", interval);
             }
 
             internal static void TwinRefreshStart()
             {
-                Log.LogDebug((int)EventIds.TwinRefreshStart, "Begin refreshing twin from upstream...");
+                Log.LogInformation((int)EventIds.TwinRefreshStart, "Begin refreshing twin from upstream...");
             }
 
             internal static void TwinRefreshSuccess()
             {
-                Log.LogDebug((int)EventIds.TwinRefreshSuccess, "Updated edge agent configuration from upstream twin.");
+                Log.LogInformation((int)EventIds.TwinRefreshSuccess, "Updated edge agent configuration from upstream twin.");
             }
 
             internal static void TwinRefreshError(Exception ex)
@@ -416,12 +424,35 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
 
             internal static void UpdatedDeploymentConfig()
             {
-                Log.LogDebug((int)EventIds.DeploymentConfigUpdated, "Edge agent updated deployment config from desired properties.");
+                Log.LogInformation((int)EventIds.DeploymentConfigUpdated, "Edge agent updated deployment config from desired properties.");
             }
 
             internal static void RetryingGetTwin(RetryingEventArgs args)
             {
-                Log.LogDebug((int)EventIds.RetryingGetTwin, $"Edge agent is retrying GetTwinAsync. Attempt #{args.CurrentRetryCount}. Last error: {args.LastException?.Message}");
+                Log.LogInformation((int)EventIds.RetryingGetTwin, $"Edge agent is retrying GetTwinAsync. Attempt #{args.CurrentRetryCount}. Last error: {args.LastException?.Message}");
+            }
+
+            public static void LogTwinCollectionPatch(TwinCollection twinCollection)
+            {
+                Log.LogInformation((int)EventIds.LogTwinCollectionPatch, $"Added logs : Obtained Twin Collection with OnDesiredUpdate function {twinCollection}");
+            }
+
+            public static void LogDesiredPropertiesAfterPatch(TwinCollection twinCollection)
+            {
+                Log.LogInformation((int)EventIds.LogDesiredPropertiesAfterPatch, $"Added logs : Obtained Twin patch : {twinCollection}");
+
+            }
+
+            public static void GotFullTwin(Option<Twin> fullTwin)
+            {
+                Log.LogInformation((int)EventIds.GotFullTwin, $"Added logs : Obtained full twin from from IoTHub {fullTwin}");
+
+            }
+
+            public static void BeforeGettingFullTwin()
+            {
+                Log.LogInformation((int)EventIds.BeforeGettingFullTwin, $"Added logs : Before calling GetTwinAsync()");
+
             }
         }
     }
